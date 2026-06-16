@@ -36,32 +36,76 @@ The `zendesk_get` tool is the key to flexibility: you don't have to pre-map endp
 
 ## Install
 
-### Prerequisites (one-time, done by a Zendesk admin)
+### Prerequisites — one-time Zendesk admin step
 
-Before anyone can connect, a Zendesk admin needs to create one OAuth client shared by the whole team:
+Before anyone installs, a Zendesk admin creates one OAuth client shared by the whole team:
 
 1. Go to **Zendesk Admin Center → Apps and integrations → APIs → OAuth Clients → Add OAuth client**
 2. Kind: **Public** | Redirect URL: `http://localhost:52369/callback`
-3. Copy the **Unique identifier** — users will need it during setup.
+3. Copy the **Unique identifier** — users will need this during setup.
 
 ---
 
-### Option A — Automated setup via Cowork or Claude Code (no terminal needed)
+### Option A — Claude Code (fully automated, no terminal)
 
-In Cowork or Claude Code, say:
+In Claude Code, say:
 
 > *"Install the Zendesk MCP from https://github.com/rashedripon/zendesk-read-only-mcp"*
 
-Claude will read the setup instructions from the repo, ask for your subdomain and OAuth client identifier, then handle everything — download, installation, config, and browser authorization. Restart Claude Desktop when prompted.
+Claude Code runs directly on your Mac so it can write to your Keychain and config files. It will ask for your subdomain and OAuth client identifier, then handle everything — download, install, config, and browser authorization. Restart Claude Desktop when prompted. Works for both Claude Desktop and Cowork.
 
 ---
 
-### Option B — Manual install via `.mcpb`
+### Option B — Terminal script (for Cowork users or anyone without Claude Code)
 
-For users without Cowork or Claude Code:
+Cowork runs in a sandbox and cannot modify your Mac directly, so setup must happen on your machine first. Run this in Terminal:
+
+```bash
+# Download and extract the latest release
+LATEST_URL=$(curl -s https://api.github.com/repos/rashedripon/zendesk-read-only-mcp/releases/latest \
+  | python3 -c "import sys,json; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('.mcpb')][0])")
+curl -L "$LATEST_URL" -o /tmp/zendesk-read.mcpb
+
+INSTALL_DIR="$HOME/.claude/extensions/zendesk-read"
+mkdir -p "$INSTALL_DIR"
+unzip -o /tmp/zendesk-read.mcpb -d "$INSTALL_DIR"
+cd "$INSTALL_DIR" && npm install --production --silent
+
+# Register with Claude Desktop
+python3 -c "
+import json, os
+config_path = os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json')
+install_dir = os.path.expanduser('~/.claude/extensions/zendesk-read')
+try:
+    config = json.load(open(config_path))
+except:
+    config = {}
+config.setdefault('mcpServers', {})['zendesk-read'] = {
+    'command': 'node',
+    'args': [os.path.join(install_dir, 'index.js')]
+}
+json.dump(config, open(config_path, 'w'), indent=2)
+print('Config updated.')
+"
+
+# Store your credentials (replace the placeholders)
+security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
+security add-generic-password -a "$USER" -s "claude-zendesk-oauth-client-id" -w "<unique-identifier>" -U
+
+# Open the browser authorization flow
+node "$HOME/.claude/extensions/zendesk-read/index.js" --authorize
+```
+
+Restart Claude Desktop after the script completes. Cowork picks up the MCP automatically on the next session.
+
+---
+
+### Option C — `.mcpb` UI install (Claude Desktop, no enterprise lock)
+
+If your organisation hasn't restricted the Extensions UI:
 
 1. Download `zendesk-read.mcpb` from the [**Releases**](../../releases) page
-2. In Claude Desktop: **Settings → Extensions → Advanced → Install Extension…** and select the file
+2. In Claude Desktop: **Settings → Extensions → Advanced → Install Extension…**
 3. Open Terminal and run:
 
 ```bash
@@ -71,13 +115,13 @@ security add-generic-password -a "$USER" -s "claude-zendesk-oauth-client-id" -w 
 
 4. In Claude, ask: *"Authorize my Zendesk connection"* — this opens your browser to approve read-only access.
 
-> **Enterprise note:** if the Install Extension button is greyed out due to org policy, use Option A instead — it configures the MCP via `claude_desktop_config.json` directly and bypasses the Extensions UI.
+> **Enterprise note:** if the Install Extension button is greyed out due to org policy, use Option A or B instead.
 
 ---
 
 ## Verifying the connection
 
-Once set up, ask Claude: *"Who am I in Zendesk?"* — the `whoami` tool confirms your subdomain, auth mode, and identity.
+Ask Claude: *"Who am I in Zendesk?"* — the `whoami` tool confirms your subdomain, auth mode, and identity.
 
 ## Re-authorizing
 
