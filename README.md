@@ -40,56 +40,82 @@ The `zendesk_get` tool is the key to flexibility: you don't have to pre-map endp
 2. In Claude Desktop, go to **Settings → Extensions → Advanced → Install Extension…**
 3. Select the downloaded `zendesk-read.mcpb` and confirm.
 
-### Cowork troubleshooting
+## First-time setup
 
-Installing the `.mcpb` makes the tools available in regular Claude Desktop chats. If they **don't surface inside a Cowork session**, add the server to `claude_desktop_config.json` so Desktop bridges it into the Cowork VM. The file lives at:
+A Zendesk admin creates **one** OAuth client for the whole team (one-time, shared):
 
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+1. Go to **Zendesk Admin Center → Apps and integrations → APIs → OAuth Clients → Add OAuth client**
+2. Client kind: **Public**
+3. Redirect URL: `http://localhost:52369/callback`
+4. Copy the **Unique identifier** — you'll need it below.
 
-Add an `mcpServers` entry pointing at the server's `src/index.js`:
+---
+
+### If you installed via `.mcpb` (recommended)
+
+Your subdomain is the part before `.zendesk.com` — e.g. if your Zendesk URL is `acme.zendesk.com`, your subdomain is `acme`.
+
+Open Terminal and run these two commands:
+
+```bash
+# 1. Store your subdomain
+security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
+
+# 2. Store the OAuth client identifier your admin created
+security add-generic-password -a "$USER" -s "claude-zendesk-oauth-client-id" -w "<unique-identifier>" -U
+```
+
+Then open Claude Desktop (or Cowork) and ask:
+
+> *"Authorize my Zendesk connection"*
+
+Claude will run the `zendesk_authorize` tool, which opens your browser, logs you into Zendesk, and stores the access token automatically. You're done — no terminal needed after this.
+
+---
+
+### If you installed from source
+
+```bash
+# Store your subdomain
+security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
+
+# Store the OAuth client identifier
+node src/index.js --set-client-id <unique-identifier>
+
+# Open the browser auth flow
+node src/index.js --authorize
+```
+
+---
+
+### Using in Cowork
+
+Install the `.mcpb` in Claude Desktop first (Settings → Extensions → Advanced → Install Extension). The tools are usually bridged into Cowork automatically.
+
+If they don't appear in a Cowork session, add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "zendesk-read": {
-      "command": "/opt/homebrew/bin/node",
-      "args": ["/absolute/path/to/zendesk-read/src/index.js"]
+      "command": "node",
+      "args": ["/Applications/Claude.app/Contents/Resources/extensions/zendesk-read/index.js"]
     }
   }
 }
 ```
 
-Then fully quit (⌘Q) and reopen Claude Desktop. A few gotchas worth knowing:
+Then restart Claude Desktop.
 
-- **Merge, don't append.** If the file already has content, add `mcpServers` as a key inside the existing top-level object — don't paste a second `{ ... }` block. Two top-level objects is invalid JSON and Desktop will silently drop it on launch.
-- **Use absolute paths.** Desktop doesn't inherit your shell `PATH`, so a bare `"command": "node"` may fail to start. Use the full path (`which node` → e.g. `/opt/homebrew/bin/node`).
-- **Path to `src/index.js`** is wherever you cloned/unpacked the server — not a relative path.
-- On first call you may get a macOS Keychain prompt for `node`; click **Always Allow**.
-- Verify with *"who am I in Zendesk?"* — Claude should run the `whoami` tool and report your account.
+---
 
-## First-time setup & auth flow
+### Re-authorizing
 
-A Zendesk admin creates **one** OAuth client for the whole team:
+If your token expires (Zendesk default: 30 days idle), just ask Claude:
 
-- Zendesk **Admin Center → Apps and integrations → APIs → OAuth Clients → Add OAuth client**
-- Client kind: **Public**
-- Redirect URL: `http://localhost:52369/callback`
-- Copy the **Unique identifier**.
+> *"Re-authorize my Zendesk connection"*
 
-Then each user, once:
-
-```bash
-# Tell the server which Zendesk instance and OAuth client to use
-security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
-node src/index.js --set-client-id <unique-identifier>
-
-# Authorize — opens your browser to log in and approve read-only access
-node src/index.js --authorize
-```
-
-After that, the extension works automatically: access tokens are refreshed in the background, and if the refresh token ever expires (Zendesk default: 30 days idle) the browser flow re-triggers — or just ask Claude to run the `zendesk_authorize` tool. To check what you're connected as, ask Claude *"who am I in Zendesk?"* (the `whoami` tool).
-
-**Legacy fallback** (until 2027-04-30): skip the OAuth steps and instead store `claude-zendesk-email` and `claude-zendesk-api-token` in the Keychain; the server uses `email/token` Basic auth when no OAuth client is configured.
+To verify you're connected, ask: *"Who am I in Zendesk?"*
 
 ## Platform note
 
