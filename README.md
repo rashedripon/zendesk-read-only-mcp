@@ -34,92 +34,70 @@ The `zendesk_get` tool is the key to flexibility: you don't have to pre-map endp
 - **Node.js ≥ 18** if you run from source or re-pack the extension
 - A Zendesk account, and — for OAuth — a Zendesk OAuth client (a one-time admin step, shared by the whole team)
 
-## Install (the `.mcpb` extension)
+## Install
 
-1. Download `zendesk-read.mcpb` from the [**Releases**](../../releases) page.
-2. In Claude Desktop, go to **Settings → Extensions → Advanced → Install Extension…**
-3. Select the downloaded `zendesk-read.mcpb` and confirm.
+### Prerequisites (one-time, done by a Zendesk admin)
 
-## First-time setup
-
-A Zendesk admin creates **one** OAuth client for the whole team (one-time, shared):
+Before anyone can connect, a Zendesk admin needs to create one OAuth client shared by the whole team:
 
 1. Go to **Zendesk Admin Center → Apps and integrations → APIs → OAuth Clients → Add OAuth client**
-2. Client kind: **Public**
-3. Redirect URL: `http://localhost:52369/callback`
-4. Copy the **Unique identifier** — you'll need it below.
+2. Kind: **Public** | Redirect URL: `http://localhost:52369/callback`
+3. Copy the **Unique identifier** — users will need it during setup.
 
 ---
 
-### If you installed via `.mcpb` (recommended)
+### Option A — Automated setup via Cowork or Claude Code (no terminal needed)
 
-Your subdomain is the part before `.zendesk.com` — e.g. if your Zendesk URL is `acme.zendesk.com`, your subdomain is `acme`.
-
-Open Terminal and run these two commands:
+If you have Claude Cowork or Claude Code, install the setup skill once:
 
 ```bash
-# 1. Store your subdomain
-security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
+mkdir -p ~/.claude/skills/zendesk-setup
+curl -o ~/.claude/skills/zendesk-setup/SKILL.md \
+  https://raw.githubusercontent.com/rashedripon/zendesk-read-only-mcp/main/skills/zendesk-setup/SKILL.md
+```
 
-# 2. Store the OAuth client identifier your admin created
+Then open Cowork or Claude Code and say:
+
+> *"Set up my Zendesk MCP"*
+
+Claude will ask for your subdomain and OAuth client identifier, then handle the download, installation, configuration, and browser authorization automatically. Restart Claude Desktop when prompted.
+
+---
+
+### Option B — Manual install via `.mcpb`
+
+For users without Cowork or Claude Code:
+
+1. Download `zendesk-read.mcpb` from the [**Releases**](../../releases) page
+2. In Claude Desktop: **Settings → Extensions → Advanced → Install Extension…** and select the file
+3. Open Terminal and run:
+
+```bash
+security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
 security add-generic-password -a "$USER" -s "claude-zendesk-oauth-client-id" -w "<unique-identifier>" -U
 ```
 
-Then open Claude Desktop (or Cowork) and ask:
+4. In Claude, ask: *"Authorize my Zendesk connection"* — this opens your browser to approve read-only access.
 
-> *"Authorize my Zendesk connection"*
-
-Claude will run the `zendesk_authorize` tool, which opens your browser, logs you into Zendesk, and stores the access token automatically. You're done — no terminal needed after this.
+> **Enterprise note:** if the Install Extension button is greyed out due to org policy, use Option A instead — it configures the MCP via `claude_desktop_config.json` directly and bypasses the Extensions UI.
 
 ---
 
-### If you installed from source
+## Verifying the connection
 
-```bash
-# Store your subdomain
-security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
+Once set up, ask Claude: *"Who am I in Zendesk?"* — the `whoami` tool confirms your subdomain, auth mode, and identity.
 
-# Store the OAuth client identifier
-node src/index.js --set-client-id <unique-identifier>
+## Re-authorizing
 
-# Open the browser auth flow
-node src/index.js --authorize
-```
+If your token expires (Zendesk default: 30 days idle), ask Claude: *"Re-authorize my Zendesk connection"* and the browser flow re-triggers automatically.
 
----
+## Legacy API token fallback
 
-### Using in Cowork
-
-Install the `.mcpb` in Claude Desktop first (Settings → Extensions → Advanced → Install Extension). The tools are usually bridged into Cowork automatically.
-
-If they don't appear in a Cowork session, add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "zendesk-read": {
-      "command": "node",
-      "args": ["/Applications/Claude.app/Contents/Resources/extensions/zendesk-read/index.js"]
-    }
-  }
-}
-```
-
-Then restart Claude Desktop.
-
----
-
-### Re-authorizing
-
-If your token expires (Zendesk default: 30 days idle), just ask Claude:
-
-> *"Re-authorize my Zendesk connection"*
-
-To verify you're connected, ask: *"Who am I in Zendesk?"*
+If no OAuth client is configured, the server falls back to `email/token` Basic auth. Store `claude-zendesk-email` and `claude-zendesk-api-token` in the Keychain. Note Zendesk is retiring API tokens — no new tokens after **2026-10-27**, all stop working **2027-04-30**. OAuth is the recommended path.
 
 ## Platform note
 
-macOS only for now — credential storage relies on the macOS Keychain (`security`). Windows support is planned (it needs a Credential Manager backend). The bundled extension declares `platforms: ["darwin"]` accordingly.
+macOS only — credential storage relies on the macOS Keychain. Windows support is planned.
 
 ## Building from source
 
@@ -131,7 +109,7 @@ npm run pack          # produces zendesk-read.mcpb
 
 ## Endpoint reference
 
-`zendesk_get` accepts any documented `GET` endpoint. See the official [Zendesk API reference](https://developer.zendesk.com/api-reference/) for the full surface (tickets, search, users, organizations, views, macros, satisfaction ratings, incremental exports, and more).
+`zendesk_get` accepts any documented Zendesk `GET` endpoint. See the [Zendesk API reference](https://developer.zendesk.com/api-reference/) for the full surface.
 
 ## License
 
