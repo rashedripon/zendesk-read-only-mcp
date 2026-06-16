@@ -40,7 +40,32 @@ The `zendesk_get` tool is the key to flexibility: you don't have to pre-map endp
 2. In Claude Desktop, go to **Settings → Extensions → Advanced → Install Extension…**
 3. Select the downloaded `zendesk-read.mcpb` and confirm.
 
-> Cowork note: install the extension in Claude Desktop. If the tools don't surface inside a Cowork session, add the server to `claude_desktop_config.json` under `mcpServers` so Desktop bridges it into Cowork.
+### Cowork troubleshooting
+
+Installing the `.mcpb` makes the tools available in regular Claude Desktop chats. If they **don't surface inside a Cowork session**, add the server to `claude_desktop_config.json` so Desktop bridges it into the Cowork VM. The file lives at:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Add an `mcpServers` entry pointing at the server's `src/index.js`:
+
+```json
+{
+  "mcpServers": {
+    "zendesk-read": {
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/absolute/path/to/zendesk-read/src/index.js"]
+    }
+  }
+}
+```
+
+Then fully quit (⌘Q) and reopen Claude Desktop. A few gotchas worth knowing:
+
+- **Merge, don't append.** If the file already has content, add `mcpServers` as a key inside the existing top-level object — don't paste a second `{ ... }` block. Two top-level objects is invalid JSON and Desktop will silently drop it on launch.
+- **Use absolute paths.** Desktop doesn't inherit your shell `PATH`, so a bare `"command": "node"` may fail to start. Use the full path (`which node` → e.g. `/opt/homebrew/bin/node`).
+- **Path to `src/index.js`** is wherever you cloned/unpacked the server — not a relative path.
+- On first call you may get a macOS Keychain prompt for `node`; click **Always Allow**.
+- Verify with *"who am I in Zendesk?"* — Claude should run the `whoami` tool and report your account.
 
 ## First-time setup & auth flow
 
