@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build artifacts (the .mcpb is published as a Release asset, not committed)
+*.mcpb
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Environment
+.env
+.env.local

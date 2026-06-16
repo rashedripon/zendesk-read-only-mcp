@@ -1,0 +1,31 @@
+{
+  "name": "zendesk-read-mcp",
+  "version": "2.0.0",
+  "description": "Read-only Zendesk MCP server for Claude Desktop and Claude Cowork. OAuth per-user auth, credentials in the macOS Keychain.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "zendesk-read-mcp": "src/index.js"
+  },
+  "scripts": {
+    "set-client-id": "node src/index.js --set-client-id",
+    "authorize": "node src/index.js --authorize",
+    "pack": "mcpb pack . zendesk-read.mcpb"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "zendesk",
+    "claude",
+    "read-only"
+  ],
+  "author": "Rashed Ripon <rashed.ripon@getyourguide.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  }
+}

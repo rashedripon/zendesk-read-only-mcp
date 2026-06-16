@@ -1,0 +1,22 @@
+{
+  "manifest_version": "0.3",
+  "name": "zendesk-read",
+  "display_name": "Zendesk (read-only)",
+  "version": "2.0.0",
+  "description": "Read-only Zendesk access: tickets, search, users, orgs, views, or any GET endpoint. OAuth via macOS Keychain.",
+  "author": {
+    "name": "Rashed Ripon",
+    "email": "rashed.ripon@getyourguide.com"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "src/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/src/index.js"]
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}
