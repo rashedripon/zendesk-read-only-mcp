@@ -48,19 +48,11 @@ Before anyone can connect, a Zendesk admin needs to create one OAuth client shar
 
 ### Option A — Automated setup via Cowork or Claude Code (no terminal needed)
 
-If you have Claude Cowork or Claude Code, install the setup skill once:
+In Cowork or Claude Code, say:
 
-```bash
-mkdir -p ~/.claude/skills/zendesk-setup
-curl -o ~/.claude/skills/zendesk-setup/SKILL.md \
-  https://raw.githubusercontent.com/rashedripon/zendesk-read-only-mcp/main/skills/zendesk-setup/SKILL.md
-```
+> *"Install the Zendesk MCP from https://github.com/rashedripon/zendesk-read-only-mcp"*
 
-Then open Cowork or Claude Code and say:
-
-> *"Set up my Zendesk MCP"*
-
-Claude will ask for your subdomain and OAuth client identifier, then handle the download, installation, configuration, and browser authorization automatically. Restart Claude Desktop when prompted.
+Claude will read the setup instructions from the repo, ask for your subdomain and OAuth client identifier, then handle everything — download, installation, config, and browser authorization. Restart Claude Desktop when prompted.
 
 ---
 
