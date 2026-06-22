@@ -58,46 +58,13 @@ Claude Code runs directly on your Mac so it can write to your Keychain and confi
 
 ### Option B — Terminal script (for Cowork users or anyone without Claude Code)
 
-Cowork runs in a sandbox and cannot modify your Mac directly, so setup must happen on your machine first.
-
-**Step 1** — Copy and paste this entire block into Terminal as-is (no changes needed):
+Cowork runs in a sandbox and cannot modify your Mac directly, so setup must happen on your machine first. Run this single command in Terminal:
 
 ```bash
-LATEST_URL=$(curl -s https://api.github.com/repos/rashedripon/zendesk-read-only-mcp/releases/latest \
-  | python3 -c "import sys,json; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('.mcpb')][0])")
-curl -L "$LATEST_URL" -o /tmp/zendesk-read.mcpb
-INSTALL_DIR="$HOME/.claude/extensions/zendesk-read"
-mkdir -p "$INSTALL_DIR"
-unzip -o /tmp/zendesk-read.mcpb -d "$INSTALL_DIR"
-cd "$INSTALL_DIR" && npm install --production --silent
-python3 -c "
-import json, os
-config_path = os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json')
-install_dir = os.path.expanduser('~/.claude/extensions/zendesk-read')
-try:
-    config = json.load(open(config_path))
-except:
-    config = {}
-config.setdefault('mcpServers', {})['zendesk-read'] = {
-    'command': 'node',
-    'args': [os.path.join(install_dir, 'index.js')]
-}
-json.dump(config, open(config_path, 'w'), indent=2)
-print('Config updated.')
-"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/rashedripon/zendesk-read-only-mcp/main/install.sh)"
 ```
 
-**Step 2** — Fill in your values, then paste into Terminal:
-
-> Your subdomain is the part before `.zendesk.com` — e.g. `acme` from `acme.zendesk.com`. Your unique identifier comes from the OAuth client your admin created.
-
-```bash
-security add-generic-password -a "$USER" -s "claude-zendesk-subdomain" -w "<your-subdomain>" -U
-security add-generic-password -a "$USER" -s "claude-zendesk-oauth-client-id" -w "<unique-identifier>" -U
-node "$HOME/.claude/extensions/zendesk-read/index.js" --authorize
-```
-
-The last command opens your browser — log in to Zendesk and approve read-only access. Then restart Claude Desktop. Cowork picks up the MCP automatically on the next session.
+The script will ask for your Zendesk subdomain and OAuth client identifier, then handle everything — download, install, config, credentials, and browser authorization. Restart Claude Desktop when done. Cowork picks up the MCP automatically on the next session.
 
 ---
 
