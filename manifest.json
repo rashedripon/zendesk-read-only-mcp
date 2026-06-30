@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "zendesk-read",
   "display_name": "Zendesk (read-only)",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Read-only Zendesk access: tickets, search, users, orgs, views, or any GET endpoint. OAuth via macOS Keychain.",
   "author": {
     "name": "Rashed Ripon",
