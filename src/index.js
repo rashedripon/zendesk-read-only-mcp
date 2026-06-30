@@ -40,6 +40,7 @@ import { z } from "zod";
 
 const KC = {
   subdomain: "claude-zendesk-subdomain",
+  subdomains: "claude-zendesk-subdomains",
   email: "claude-zendesk-email",
   apiToken: "claude-zendesk-api-token",
   clientId: "claude-zendesk-oauth-client-id",
@@ -79,6 +80,38 @@ function getSubdomain() {
     );
   }
   return sd;
+}
+
+/** Map of label → subdomain for every configured Zendesk instance. The primary
+ *  (`claude-zendesk-subdomain`) is labelled "default"; extras come from
+ *  `claude-zendesk-subdomains` as comma-separated "label=subdomain" (or bare
+ *  "subdomain") pairs. The OAuth token is shared across all of them. */
+function subdomainRegistry() {
+  const reg = new Map();
+  const def = kcGet(KC.subdomain);
+  if (def) reg.set("default", def);
+  const extra = kcGet(KC.subdomains);
+  if (extra) {
+    for (const item of extra.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const [a, b] = item.includes("=") ? item.split("=") : [item, item];
+      reg.set(a.trim(), (b ?? a).trim());
+    }
+  }
+  return reg;
+}
+
+/** Resolve a subdomain selector (label or literal) to an actual subdomain.
+ *  Empty → the primary. Any valid bare subdomain is accepted (auth is shared,
+ *  read-only), so a brand's Help Center instance can be reached without setup. */
+function resolveSubdomain(sel) {
+  if (!sel) return getSubdomain();
+  const s = String(sel).trim();
+  const reg = subdomainRegistry();
+  if (reg.has(s)) return reg.get(s);
+  for (const v of reg.values()) if (v === s) return s;
+  if (/^[a-z0-9][a-z0-9-]*$/i.test(s)) return s;
+  const known = [...reg.entries()].map(([k, v]) => (k === v ? k : `${k}=${v}`)).join(", ");
+  throw new Error(`Invalid subdomain "${sel}". Configured instances: ${known || "(only default)"}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -351,14 +384,16 @@ function augmentError(r) {
 /** Single GET. `target` may be a relative path ("/tickets/1", "tickets/1",
  *  "/api/v2/tickets/1") or an absolute same-host URL (used when following
  *  pagination links). Returns the parsed response plus rate-limit headers. */
-async function zdRequest(target, params = {}) {
-  const subdomain = getSubdomain();
+async function zdRequest(target, params = {}, subdomainSel) {
+  const subdomain = resolveSubdomain(subdomainSel);
 
   let url;
   if (/^https?:\/\//i.test(target)) {
     url = new URL(target);
-    if (url.hostname !== `${subdomain}.zendesk.com`) {
-      throw new Error(`Refusing to fetch off-host URL: ${url.hostname}`);
+    // Absolute URLs come from pagination links — allow any Zendesk instance
+    // (same shared token), but nothing off *.zendesk.com.
+    if (!/^[a-z0-9][a-z0-9-]*\.zendesk\.com$/i.test(url.hostname)) {
+      throw new Error(`Refusing to fetch off-host URL: ${url.hostname} (only *.zendesk.com allowed)`);
     }
   } else {
     let p = String(target).trim();
@@ -464,8 +499,8 @@ function deliverCollection(label, items, key, meta = {}) {
 }
 
 /** Single GET used by the convenience tools and zendesk_get. */
-async function zdGet(target, params = {}, label = "zendesk_get") {
-  const r = await zdRequest(target, params);
+async function zdGet(target, params = {}, label = "zendesk_get", subdomainSel) {
+  const r = await zdRequest(target, params, subdomainSel);
   if (!r.ok) {
     if (isGuessFailure(r.status)) consecutiveGuessFailures++;
     throw augmentError(r);
@@ -501,8 +536,8 @@ function nextTarget(json) {
 /** Fetch every page of a list/export endpoint in one call. Loops server-side
  *  (one approval, no per-page prompts), pauses at 80% of the rate budget, and
  *  spills large aggregates to a file. */
-async function zdGetAll(target, params = {}, { maxRecords = DEFAULT_MAX_RECORDS, label = "export" } = {}) {
-  let r = await zdRequest(target, params);
+async function zdGetAll(target, params = {}, { maxRecords = DEFAULT_MAX_RECORDS, label = "export" } = {}, subdomainSel) {
+  let r = await zdRequest(target, params, subdomainSel);
   if (!r.ok) {
     if (isGuessFailure(r.status)) consecutiveGuessFailures++;
     throw augmentError(r);
@@ -548,7 +583,7 @@ async function zdGetAll(target, params = {}, { maxRecords = DEFAULT_MAX_RECORDS,
 /** Fetch many records by ID via Zendesk's /{resource}/show_many batch endpoint,
  *  chunking the ID list into ≤100-id requests. One bulk pull instead of N single
  *  GETs — far fewer API calls. Rate-budget aware; spills large results to file. */
-async function zdGetMany(resource, idsRaw, by = "ids", label) {
+async function zdGetMany(resource, idsRaw, by = "ids", label, subdomainSel) {
   const res = String(resource).replace(/[^a-z_]/gi, "").toLowerCase();
   if (!res) throw new Error('Provide a resource, e.g. "tickets", "users", or "organizations".');
   const ids = String(idsRaw).split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
@@ -562,7 +597,7 @@ async function zdGetMany(resource, idsRaw, by = "ids", label) {
 
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
-    const r = await zdRequest(`/${res}/show_many`, { [field]: chunk.join(",") });
+    const r = await zdRequest(`/${res}/show_many`, { [field]: chunk.join(",") }, subdomainSel);
     if (!r.ok) {
       if (isGuessFailure(r.status)) consecutiveGuessFailures++;
       if (chunks === 0) throw augmentError(r);
@@ -612,6 +647,25 @@ if (clientIdFlag !== -1) {
   }
   kcSet(KC.clientId, id);
   console.log(`Stored OAuth client id in Keychain (${KC.clientId}).`);
+  process.exit(0);
+}
+
+const addSubFlag = process.argv.indexOf("--add-subdomain");
+if (addSubFlag !== -1) {
+  const spec = process.argv[addSubFlag + 1]; // "label=subdomain" or bare "subdomain"
+  if (!spec) {
+    console.error('Usage: node index.js --add-subdomain <label=subdomain>   (e.g. helpcenter=gygagent)');
+    process.exit(1);
+  }
+  const [labelRaw, subRaw] = spec.includes("=") ? spec.split("=") : [spec, spec];
+  const label = labelRaw.trim();
+  const sub = (subRaw ?? labelRaw).trim();
+  const reg = subdomainRegistry();
+  reg.delete("default"); // never store the primary in the extras list
+  reg.set(label, sub);
+  const serialized = [...reg.entries()].map(([a, b]) => (a === b ? b : `${a}=${b}`)).join(",");
+  kcSet(KC.subdomains, serialized);
+  console.log(`Registered: ${label} → ${sub}. Configured extras: ${serialized}`);
   process.exit(0);
 }
 
@@ -732,7 +786,17 @@ const ENDPOINT_MAP = `Endpoint quick map (path is relative to /api/v2):
 - Views: /views, /views/{id}/tickets, /views/{id}/execute; Macros: /macros; Groups: /groups; Brands: /brands; CSAT: /satisfaction_ratings?ticket_id={id}
 - Business rules (workflow/automation forensics): /triggers, /triggers/active, /triggers/{id}, /trigger_categories, /automations, /automations/active, /macros, /sla_policies, /routing/* (skills-based routing)
 - Bulk/historical: /incremental/tickets/cursor.json?start_time=<unix> (cursor, page[size] up to 1000), /incremental/ticket_events.json?start_time=<unix>, /incremental/ticket_metric_events?start_time=<unix>, /incremental/users/cursor.json?start_time=<unix>, /incremental/organizations.json?start_time=<unix> — never paginate /tickets end-to-end
-- Help Center / Guide (knowledge base): /help_center/articles, /help_center/articles/{id}, /help_center/articles/search?query=..., /help_center/{locale}/articles (e.g. en-us), /help_center/incremental/articles?start_time=<unix>, /help_center/sections, /help_center/sections/{id}/articles, /help_center/categories, /help_center/categories/{id}/sections, /help_center/articles/{id}/comments, /help_center/articles/{id}/votes, /help_center/user_segments, /help_center/permission_groups`;
+- Help Center / Guide (knowledge base): /help_center/articles, /help_center/articles/{id}, /help_center/articles/search?query=..., /help_center/{locale}/articles (e.g. en-us), /help_center/incremental/articles?start_time=<unix>, /help_center/sections, /help_center/sections/{id}/articles, /help_center/categories, /help_center/categories/{id}/sections, /help_center/articles/{id}/comments, /help_center/articles/{id}/votes, /help_center/user_segments, /help_center/permission_groups
+  NOTE: a Help Center / Guide can live on a DIFFERENT brand subdomain than the main support instance. If articles 404 or look wrong, pass the "subdomain" argument to target that brand's instance (see below).`;
+
+/** Built at startup from the configured instances, so the model sees which
+ *  subdomains exist and when to pass the `subdomain` argument. */
+const SUBDOMAIN_HINT = (() => {
+  const reg = subdomainRegistry();
+  if (reg.size <= 1) return "";
+  const list = [...reg.entries()].map(([k, v]) => (k === v ? v : `${k} → ${v}`)).join("; ");
+  return `\n\nMULTIPLE ZENDESK INSTANCES are configured (shared auth). Pass the optional "subdomain" argument — a label or a raw subdomain — to target one; omit it for the primary. Use the right instance for Help Center / brand-specific content. Available: ${list}. Default: ${reg.get("default") ?? "(primary)"}.`;
+})();
 
 server.registerTool(
   "zendesk_get",
@@ -745,7 +809,7 @@ ${ENDPOINT_MAP}
 Where ticket data lives (try related endpoints before reporting "not found"):
 fields/tags/CCs → /tickets/{id} · comment bodies → /tickets/{id}/comments · change history/reopen reasons/email headers → /tickets/{id}/audits · SLA/first-reply times → /tickets/{id}/metrics · problem↔incident links → /tickets/{id}/incidents
 
-Pagination: modern endpoints use cursor pages — params page[size] (max 100) + page[after] from meta.after_cursor, loop while meta.has_more. /search uses page/per_page with next_page URLs. Common 404 causes: plural vs singular, wrong noun (/incidents vs /problems). If unsure between endpoints, try the most likely one — a wrong guess is cheap and the error hints help. But if several guesses fail (404/422), the server will tell you to STOP and ask the user for the exact endpoint — do that rather than guessing on.`,
+Pagination: modern endpoints use cursor pages — params page[size] (max 100) + page[after] from meta.after_cursor, loop while meta.has_more. /search uses page/per_page with next_page URLs. Common 404 causes: plural vs singular, wrong noun (/incidents vs /problems). If unsure between endpoints, try the most likely one — a wrong guess is cheap and the error hints help. But if several guesses fail (404/422), the server will tell you to STOP and ask the user for the exact endpoint — do that rather than guessing on.${SUBDOMAIN_HINT}`,
     inputSchema: {
       path: z
         .string()
@@ -754,9 +818,13 @@ Pagination: modern endpoints use cursor pages — params page[size] (max 100) + 
         .record(z.string())
         .optional()
         .describe('Query parameters as key/value strings, e.g. {"query": "type:ticket status:open", "page[size]": "100"}. Values are URL-encoded for you — pass them raw.'),
+      subdomain: z
+        .string()
+        .optional()
+        .describe('Optional: target a different Zendesk instance/brand by configured label or raw subdomain (e.g. "gygagent"). Use for Help Center / Guide content on another brand. Omit for the primary instance.'),
     },
   },
-  async ({ path: p, params }) => run(() => zdGet(p, params ?? {}))
+  async ({ path: p, params, subdomain }) => run(() => zdGet(p, params ?? {}, "zendesk_get", subdomain))
 );
 
 server.registerTool(
@@ -767,7 +835,7 @@ server.registerTool(
 
 Use for bulk pulls: full ticket audit history (/tickets/{id}/audits), incremental exports (/incremental/tickets/cursor.json?start_time=, /incremental/ticket_events.json, /incremental/ticket_metric_events), all triggers/automations, every Help Center article (/help_center/articles or /help_center/incremental/articles), org/user listings, /search/export. For a single page, use zendesk_get instead.
 
-${ENDPOINT_MAP}`,
+${ENDPOINT_MAP}${SUBDOMAIN_HINT}`,
     inputSchema: {
       path: z
         .string()
@@ -786,10 +854,14 @@ ${ENDPOINT_MAP}`,
         .string()
         .optional()
         .describe('Short name used in the export filename, e.g. "inc-tickets" → inc-tickets-<timestamp>.json'),
+      subdomain: z
+        .string()
+        .optional()
+        .describe('Optional: target a different Zendesk instance/brand by configured label or raw subdomain (e.g. "gygagent"). Use for Help Center / Guide content on another brand. Omit for the primary instance.'),
     },
   },
-  async ({ path: p, params, max_records, label }) =>
-    run(() => zdGetAll(p, params ?? {}, { maxRecords: max_records ?? DEFAULT_MAX_RECORDS, label: label ?? "export" }))
+  async ({ path: p, params, max_records, label, subdomain }) =>
+    run(() => zdGetAll(p, params ?? {}, { maxRecords: max_records ?? DEFAULT_MAX_RECORDS, label: label ?? "export" }, subdomain))
 );
 
 server.registerTool(
@@ -807,9 +879,10 @@ server.registerTool(
       ids: z.string().describe("IDs to fetch, comma- or space-separated (any count — chunked into 100s)"),
       by: z.enum(["ids", "external_ids"]).optional().describe("Match by Zendesk id (default) or external_ids"),
       label: z.string().optional().describe("Short name for the export filename if results spill to a file"),
+      subdomain: z.string().optional().describe('Optional: target a different Zendesk instance/brand by configured label or raw subdomain. Omit for the primary instance.'),
     },
   },
-  async ({ resource, ids, by, label }) => run(() => zdGetMany(resource, ids, by ?? "ids", label))
+  async ({ resource, ids, by, label, subdomain }) => run(() => zdGetMany(resource, ids, by ?? "ids", label, subdomain))
 );
 
 // --- Reading saved exports back (Cowork-safe: goes through the server) -------
@@ -953,16 +1026,21 @@ server.registerTool(
   {
     title: "Current Zendesk account",
     description:
-      "Show which Zendesk subdomain and auth mode (OAuth vs legacy API token) this server is using, " +
-      "and verify the API connection via /users/me.",
-    inputSchema: {},
+      "Show which Zendesk subdomain and auth mode (OAuth vs legacy API token) this server is using, list all " +
+      "configured instances, and verify the API connection via /users/me. Pass subdomain to test the token against " +
+      "a specific instance/brand.",
+    inputSchema: {
+      subdomain: z.string().optional().describe("Optional: verify the connection against a specific instance/brand (configured label or raw subdomain)"),
+    },
   },
-  async () =>
+  async ({ subdomain: sel }) =>
     run(async () => {
-      const subdomain = getSubdomain();
+      const target = resolveSubdomain(sel);
       const mode = kcGet(KC.clientId) ? "OAuth (authorization code + PKCE, scope: read)" : "legacy API token (EOL 2027-04-30 — migrate to OAuth)";
-      const me = await zdGet("/users/me", {}, "whoami");
-      return `subdomain: ${subdomain}\nauth mode: ${mode}\nexport dir: ${exportDir()}\n\n/users/me response:\n${me}`;
+      const reg = subdomainRegistry();
+      const known = [...reg.entries()].map(([k, v]) => (k === v ? v : `${k}=${v}`)).join(", ") || "(only default)";
+      const me = await zdGet("/users/me", {}, "whoami", sel);
+      return `subdomain: ${target}\nauth mode: ${mode}\nconfigured instances: ${known}\nexport dir: ${exportDir()}\n\n/users/me response:\n${me}`;
     })
 );
 

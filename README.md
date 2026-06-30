@@ -15,6 +15,7 @@ That makes it safe to hand to a whole team: the worst case is reading data the u
 - **Legacy API-token fallback** — if no OAuth client is configured, it falls back to `email/token` Basic auth. Note Zendesk is retiring API tokens (no new tokens after **2026-10-27**, all tokens stop working **2027-04-30**), so OAuth is the recommended path.
 - **One-call bulk pulls** — `zendesk_get_all` follows pagination (cursor, offset, and incremental styles) **server-side**, so you approve once instead of once per page. It pauses automatically at 80% of Zendesk's per-minute rate budget and reports where it stopped.
 - **No silent truncation** — large responses are written in full to a local JSON file (with a preview returned to Claude) instead of being cut off, and `read_export` reads them back through the server so it works even in Cowork.
+- **Multiple Zendesk instances** — a Help Center / Guide (or other brand) often lives on a different `*.zendesk.com` subdomain. Pass an optional `subdomain` argument to target it; the same OAuth token is reused across instances.
 - **Focused tools for the common cases** plus a generic escape hatch:
 
 | Tool | What it does |
@@ -146,6 +147,35 @@ npm install
 npm install -g @anthropic-ai/mcpb
 npm run pack          # produces zendesk-read.mcpb
 ```
+
+## Multiple instances (Help Center on another subdomain)
+
+Zendesk often serves a Help Center / Guide — or a separate brand — from a
+*different* subdomain than your main support instance (e.g. tickets on
+`acmesupport.zendesk.com` but Help Center articles on `acmeguide.zendesk.com`).
+The same OAuth token works across them, so the only thing that changes is the
+host.
+
+Pass the optional **`subdomain`** argument to `zendesk_get` / `zendesk_get_all` /
+`get_many` (and `whoami`) — it accepts either a **configured label** or a **raw
+subdomain**:
+
+```
+zendesk_get  path=/help_center/articles  subdomain=acmeguide
+```
+
+Omit it and requests go to the primary instance as before. To make instances
+easy to pick (they then show up in `whoami` and in the tool hints), register a
+friendly label once:
+
+```bash
+node index.js --add-subdomain helpcenter=acmeguide
+# stored in the Keychain item claude-zendesk-subdomains
+```
+
+Then `subdomain=helpcenter` routes to `acmeguide.zendesk.com`. Verify a given
+instance authorizes with your token via `whoami` (e.g. ask *"check my Zendesk
+connection for the helpcenter instance"*).
 
 ## Bulk pulls & large responses
 
