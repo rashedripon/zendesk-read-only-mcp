@@ -1,6 +1,6 @@
 {
   "name": "zendesk-read-mcp",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Read-only Zendesk MCP server for Claude Desktop and Claude Cowork. OAuth per-user auth, credentials in the macOS Keychain.",
   "type": "module",
   "main": "src/index.js",

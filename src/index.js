@@ -732,10 +732,11 @@ server.registerTool(
     description: "All public comments and internal notes on a ticket, including attachments metadata.",
     inputSchema: {
       id: z.number().int().describe("Ticket ID"),
-      "page[size]": z.number().int().min(1).max(100).optional(),
+      page_size: z.number().int().min(1).max(100).optional().describe("Results per page (maps to page[size])"),
     },
   },
-  async ({ id, ...params }) => run(() => zdGet(`/tickets/${id}/comments`, params, `ticket-${id}-comments`))
+  async ({ id, page_size }) =>
+    run(() => zdGet(`/tickets/${id}/comments`, page_size ? { "page[size]": page_size } : {}, `ticket-${id}-comments`))
 );
 
 server.registerTool(
@@ -748,10 +749,11 @@ server.registerTool(
       "For tickets with very long histories, use zendesk_get_all on /tickets/{id}/audits to get every page.",
     inputSchema: {
       id: z.number().int().describe("Ticket ID"),
-      "page[size]": z.number().int().min(1).max(100).optional(),
+      page_size: z.number().int().min(1).max(100).optional().describe("Results per page (maps to page[size])"),
     },
   },
-  async ({ id, ...params }) => run(() => zdGet(`/tickets/${id}/audits`, params, `ticket-${id}-audits`))
+  async ({ id, page_size }) =>
+    run(() => zdGet(`/tickets/${id}/audits`, page_size ? { "page[size]": page_size } : {}, `ticket-${id}-audits`))
 );
 
 server.registerTool(
